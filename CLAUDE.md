@@ -125,6 +125,19 @@ Gray = external source · Blue = Vertex AI Pipelines · Green = data stores/arti
 
 ---
 
+## Containerization (Docker)
+
+Every component in the diagram above that isn't a managed GCP service runs as a container — this section is the target design for those images; none are built yet (see "Current State of the Repo").
+
+- **Two image families.** *Serving image*: one long-running FastAPI process deployed as a Vertex AI Endpoint custom container. *Pipeline component images*: one per KFP component — Ingest, Transform/DQ, Extract, Validate, Feature Build, Train, Evaluate, Conditional Register, plus the Monitor & Trigger pipeline's own steps — each a short-lived batch process Vertex AI Pipelines invokes and tears down.
+- **Shared base image.** All Dockerfiles build `FROM` a common `python:3.11-slim` base (matches `requires-python >=3.11` in `pyproject.toml`) with the project installed via `pip install -e .`, so every image comes from the same pinned dependency set instead of re-resolving deps per component.
+- **Multi-stage builds.** Builder stage installs deps (needs compilers for `torch`/`lightgbm` wheels) → slim runtime stage copies only the installed site-packages. This matters most for Train (pulls in `torch` + `transformers`) and keeps lightweight components like Extract/Validate from paying that weight.
+- **Layout.** Top-level `Dockerfile` for serving; `src/pipelines/components/<component>/Dockerfile` per pipeline component. A `.dockerignore` at the repo root excludes `.venv/`, `experimentation/`, `tests/`, `.git/`, raw data files, and notebook checkpoints.
+- **Serving container contract.** Must satisfy Vertex AI's custom-container prediction requirements: HTTP server on `$AIP_HTTP_PORT` (default 8080), health route `$AIP_HEALTH_ROUTE` (`/health`), predict route `$AIP_PREDICT_ROUTE` (`/v1/predict`); runs as a non-root user; the model artifact is pulled from the Model Registry/GCS at container startup, never baked into the image.
+- **Tagging & registry.** Images are tagged by git SHA plus an environment tag (`staging`/`prod`) and pushed to the Artifact Registry repo named by the `ARTIFACT_REGISTRY_REPO` variable — see `docs/gcp-cicd-setup.md` for the CI/CD identity (Workload Identity Federation) that pushes them. Model artifact versioning (MLflow/Model Registry) stays independent of the image tag — the image is code, the registered model is a separate versioned artifact, per the CI/CD note below.
+
+---
+
 ## Repository Structure
 
 ```
@@ -135,8 +148,11 @@ Gray = external source · Blue = Vertex AI Pipelines · Green = data stores/arti
 │                                  #   deploy, integration tests on merge; manual-approval promotion with
 │                                  #   canary/rollback — not created yet
 ├── .gitignore                    # .env, credentials, __pycache__, .venv — not created yet
+├── Dockerfile                    # serving image (FastAPI on Vertex AI Endpoint) — not created yet
+├── .dockerignore                 # excludes .venv/, experimentation/, tests/, data files — not created yet
 ├── configs/                      # data/model/pipeline yaml configs — not created yet
 ├── docs/
+│   ├── gcp-cicd-setup.md         # GCP/GitHub Actions CI/CD identity & secrets reference (names/purpose only)
 │   └── rfcs/                     # design docs from the Framing & RFC step — not created yet
 ├── experimentation/               # exploratory notebooks only — currently empty
 ├── src/
@@ -150,6 +166,7 @@ Gray = external source · Blue = Vertex AI Pipelines · Green = data stores/arti
 │   ├── pipelines/                  # Kubeflow/KFP SDK pipelines: (1) Extract→Validate→Feature Build (incl. batch
 │   │                               #   ingest to Vertex AI Feature Store)→Train→Evaluate→Conditional Register,
 │   │                               #   (2) Monitor & Trigger (reads drift/quality tables, submits (1) on breach)
+│   │                               #   Each component's Dockerfile lives at src/pipelines/components/<name>/Dockerfile
 │   │                               #   — not created yet
 │   ├── serving/                    # FastAPI on Vertex AI Endpoint (/predict, /health): Feature Store online-lookup
 │   │                               #   client + Pub/Sub prediction-event publisher — not created yet
@@ -185,6 +202,10 @@ pytest tests/unit
 
 # Integration tests (hit a staging project — CI-only, not for local runs)
 pytest tests/integration
+
+# Build and run the serving image locally
+docker build -t cfpb-serving -f Dockerfile .
+docker run --rm -p 8080:8080 cfpb-serving
 ```
 
 ---
@@ -209,3 +230,4 @@ pytest tests/integration
 12. **Structured logging** — use Python's `logging` module everywhere, never `print()`. Pipeline components and the serving container emit structured/JSON logs so they're queryable in Cloud Logging: INFO for normal flow (request received, Feature Store lookup, pipeline stage start/end), WARNING for degraded-but-recovered paths (fallback triggered, Pub/Sub publish retried), ERROR for failures needing attention. Never log raw complaint narratives, resolved feature values, or other PII — log a hash/ID instead; full narrative text and the resolved feature vector used for a prediction only ever land in the access-controlled BigQuery audit table, reached via the async Pub/Sub → BigQuery subscription (guideline on Serving above), not application logs.
 13. **pytest conventions** — test files named `test_*.py`, mirroring the `src/` module they cover, under `tests/unit/` or `tests/integration/`. Unit tests mock external GCP clients (BigQuery, GCS, Vertex AI) and never hit real cloud resources; only integration tests, run in CI against a staging project, are allowed to. Use `pytest.mark.parametrize` for edge cases (empty narrative, unseen taxonomy label, tail sub-products) instead of near-duplicate test functions. Shared fixtures live in `conftest.py` per test tier.
 14. **Secrets & config** — never hardcode credentials, project IDs, bucket names, or dataset names inline; source them from the typed config objects (guideline #2) and Secret Manager for anything sensitive. Credential files and `.env` are gitignored, never committed.
+15. **Container conventions** — run as a non-root user; pin the base image by digest (not just tag) so builds are reproducible; use multi-stage builds so the heavy build toolchain (needed for `torch`/`lightgbm` wheels) never ships in the runtime image; never bake secrets into an image layer — fetch them at runtime per guideline #14.
