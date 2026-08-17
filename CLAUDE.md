@@ -17,7 +17,7 @@ This project is early-stage — the architecture below is the **target design**,
 - Not a git repository yet.
 - `src/` contains only a package `__init__.py` — no ingestion, transformation, model, forecasting, evaluation, pipeline, serving, or monitoring modules exist yet.
 - `experimentation/` is currently empty — no notebooks yet.
-- `requirements.txt` — pinned deps (pandas/sklearn/torch/transformers/lightgbm/fastapi/pytest/ruff/mypy). No `pyproject.toml` yet.
+- `pyproject.toml` — pinned deps (pandas/sklearn/torch/transformers/lightgbm/fastapi under `[project.dependencies]`; pytest/ruff/mypy under the `dev` extra).
 - No `tests/`, `Dockerfile`, `configs/`, `.github/workflows/`, or `docs/rfcs/` yet.
 - No GCP resources (BigQuery, Vertex AI Pipelines, Vertex AI Endpoint, Vertex AI Model Registry, Vertex AI Feature Store, Pub/Sub, GCS) provisioned — the architecture in the next section describes where this is headed, not what's live.
 
@@ -157,7 +157,7 @@ Gray = external source · Blue = Vertex AI Pipelines · Green = data stores/arti
 ├── tests/
 │   ├── unit/                       # test_*.py mirroring src/, mocked GCP clients, conftest.py — not created yet
 │   └── integration/                # CI-only, staging project, conftest.py — not created yet
-├── requirements.txt
+├── pyproject.toml
 └── CLAUDE.md
 ```
 
@@ -170,12 +170,12 @@ Gray = external source · Blue = Vertex AI Pipelines · Green = data stores/arti
 source .venv/bin/activate
 
 # Install/refresh dependencies
-pip install -r requirements.txt
+pip install -e ".[dev]"
 
 # Download the bulk CFPB dataset locally (large — several GB)
 python -c "from src.ingestion.load_data import download_bulk_dataset; download_bulk_dataset()"
 
-# Lint / type-check / test (deps are in requirements.txt; configs not yet added)
+# Lint / type-check / test (deps are in pyproject.toml; tool configs not yet added)
 ruff check .
 mypy src
 pytest

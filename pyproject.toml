@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cfpb-complaint-classification-and-forecast"
+version = "0.1.0"
+description = "Hierarchical CFPB complaint text classification and weekly volume quantile forecasting"
+requires-python = ">=3.11"
+dependencies = [
+    # Core Data & Modeling
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "scikit-learn>=1.3.0",
+    "scipy>=1.11.0",
+    "pyyaml>=6.0",
+    # Visualization & Notebook
+    "matplotlib>=3.7.0",
+    "seaborn>=0.12.0",
+    "jupyter>=1.0.0",
+    "ipykernel>=6.25.0",
+    # Machine Learning & Deep Learning
+    "torch>=2.0.0",
+    "transformers>=4.35.0",
+    "lightgbm>=4.1.0",
+    # API & Production Serving
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+    "pydantic>=2.4.0",
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "ruff>=0.1.0",
+    "mypy>=1.6.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
